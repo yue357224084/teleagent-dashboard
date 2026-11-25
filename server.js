@@ -188,7 +188,13 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         const acc = manager.update(id, body);
         if (!acc) return json(res, { error: '账号不存在' }, 404);
-        return json(res, accountView(acc, manager.runtime(acc)));
+        const rt = manager.runtime(acc);
+        // 编辑账号时填了新密码 → 立即用新密码重登
+        if (body.password) {
+          rt.loginWithPassword(acc.user, body.password)
+            .catch((e) => logbus.push('Auth', `[${acc.name}] 重新登录失败: ${e.message}`, 'error', acc.name));
+        }
+        return json(res, accountView(acc, rt));
       }
 
       const cur = runtimeOf(id);
@@ -223,6 +229,11 @@ const server = http.createServer(async (req, res) => {
           rt.ensureJwt().then(() => rt.refreshInstances()).catch((e) => logbus.push('Auth', `[${acc.name}] 重新登录失败: ${e.message}`, 'error', acc.name));
           return json(res, { message: `[${acc.name}] 重新登录已启动` });
         }
+        if (task === 'keepalive-now') {
+          rt.kick().then((r) => logbus.push('KeepAlive', `[${acc.name}] 立即保活完成（第 ${r.cycles} 轮）`, 'success', acc.name))
+            .catch((e) => logbus.push('KeepAlive', `[${acc.name}] 立即保活失败: ${e.message}`, 'warning', acc.name));
+          return json(res, { message: `[${acc.name}] 已触发立即保活` });
+        }
         if (task === 'refresh') {
           rt.refreshInstances().catch(() => {});
           rt.refreshPoints().catch(() => {});
@@ -250,6 +261,17 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
           return json(res, { error: `打开云电脑失败: ${e.message}` }, 400);
         }
+      }
+
+      if (tail === 'service-status') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        try { return json(res, { success: true, data: await rt.serviceStatus() }); }
+        catch (e) { return json(res, { success: false, error: e.message }, 400); }
+      }
+
+      if (tail === 'logout' && req.method === 'POST') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        return json(res, rt.clearCredentials());
       }
 
       if (tail === 'vm-feature' && req.method === 'POST') {

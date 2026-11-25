@@ -1,11 +1,12 @@
-// TeleAgent 适配层：隐藏不支持的平台/登录方式，并把「添加账号」改写成 TeleAgent 平台登录
-// 说明：ctyun-dashboard 前端原生的"扫码/图形验证码/设备码"链路属于天翼云，本后端不提供；
-//       TeleAgent 平台的服务端登录会自动过滑块，所以这里只需要手机号 + 密码。
+// TeleAgent 适配层：
+// 1) 隐藏后端不支持的入口（天翼云扫码/图形验证码/移动云/AI对话/挂机/兑换/关机…）
+// 2) 「添加账号」改写成 TeleAgent 平台登录（服务端自动过滑块）
+// 3) 注入「实例操作」面板：打开 / 立即保活 / 暂停恢复 / 刷新 / 重启 / 重置 /
+//    取消排队 / 平台服务状态 / 保活间隔 / 定时重启 / 重新登录 / 清除凭据
 (function () {
   const $ = (id) => document.getElementById(id);
 
   function hide(el) { if (el) el.style.display = 'none'; }
-  function unhide(el) { if (el) el.style.display = ''; }
   function hideGroup(inputId) {
     const el = $(inputId);
     if (!el) return;
@@ -14,25 +15,20 @@
   }
 
   function applyTeleagentUi() {
-    // 只保留"天翼云"槽位，并把名字换成 TeleAgent
     const tabCtyun = $('platform-tab-ctyun');
     if (tabCtyun) tabCtyun.textContent = '🤖 TeleAgent 云电脑';
     hide($('platform-tab-ydpc'));
     hide($('platform-tab-ecloud'));
-
-    // 扫码 tab / 图形验证码 / 设备码 都不适用
     hide($('tab-btn-qrcode'));
     hide($('login-panel-qrcode'));
     const tabs = $('acc-login-tabs');
     if (tabs) tabs.style.display = 'none';
     const pwdPanel = $('login-panel-pwd');
     if (pwdPanel) pwdPanel.classList.remove('hidden');
-
     hideGroup('acc-captcha-code');
     hideGroup('acc-device-code');
 
-    // 文案改成 TeleAgent 口径
-    const userLabel = document.querySelector('label[for="acc-user"]') || ($('acc-user') && $('acc-user').previousElementSibling);
+    const userLabel = $('acc-user') && $('acc-user').previousElementSibling;
     if (userLabel && /手机号/.test(userLabel.textContent || '')) userLabel.textContent = 'TeleAgent 账号（手机号）*';
     const u = $('acc-user');
     if (u) u.placeholder = '请输入 agent.teleai.com.cn 登录账号';
@@ -82,11 +78,212 @@
     }
   };
 
-  // 原生验证码刷新接口在我们这里不存在，改成空操作避免 404 噪音
   window.refreshModalCaptcha = function () {};
   window.refreshYdpcModalCaptcha = function () {};
 
-  // 隐藏后端没有对应能力的入口（渲染是每 5 秒重绘，所以持续清扫）
+  // ---------- 实例操作面板 ----------
+  let opsAccId = '';
+
+  function accById(id) {
+    try { return (window.accounts || []).find((a) => a.id === id) || {}; } catch { return {}; }
+  }
+
+  function ensureOpsModal() {
+    if ($('ta-ops-modal')) return;
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <div class="modal-backdrop hidden" id="ta-ops-modal">
+        <div class="modal" style="max-width: 560px;">
+          <div class="modal-header">
+            <h3 id="ta-ops-title">实例操作</h3>
+            <button class="modal-close" onclick="closeModal('ta-ops-modal')">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div id="ta-ops-info" style="font-size: 12.5px; color: #334155; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; line-height: 1.7;"></div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <button class="btn btn-tool" onclick="taOp('open')">🚀 打开云电脑</button>
+              <button class="btn btn-tool" onclick="taOp('kick')">🎫 立即保活</button>
+              <button class="btn btn-tool" onclick="taOp('toggle')">⏸ 暂停 / 恢复保活</button>
+              <button class="btn btn-tool" onclick="taOp('refresh')">🔄 刷新状态</button>
+              <button class="btn btn-warning" onclick="taOp('restart')">♻️ 重启云电脑</button>
+              <button class="btn btn-danger" onclick="taOp('rebuild')">💣 重置云电脑服务</button>
+              <button class="btn btn-tool" onclick="taOp('cancel')">⏹ 取消排队</button>
+              <button class="btn btn-tool" onclick="taOp('service')">📊 平台服务状态</button>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+              <span style="font-size:12.5px;">保活间隔</span>
+              <select class="form-control" id="ta-ops-interval" style="width:auto; padding:4px 8px;">
+                <option value="60">1 分钟</option>
+                <option value="300">5 分钟（推荐）</option>
+                <option value="600">10 分钟</option>
+                <option value="1800">30 分钟</option>
+              </select>
+              <button class="btn btn-sm" onclick="taOp('interval')">保存</button>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+              <label style="font-size:12.5px; display:flex; align-items:center; gap:4px;">
+                <input type="checkbox" id="ta-ops-plan-on"> 定时重启
+              </label>
+              <select class="form-control" id="ta-ops-plan-mode" style="width:auto; padding:4px 8px;">
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+              </select>
+              <select class="form-control" id="ta-ops-plan-weekday" style="width:auto; padding:4px 8px;">
+                <option value="0">周日</option><option value="1">周一</option><option value="2">周二</option>
+                <option value="3">周三</option><option value="4">周四</option><option value="5">周五</option><option value="6">周六</option>
+              </select>
+              <input type="time" class="form-control" id="ta-ops-plan-time" style="width:auto; padding:4px 8px;" value="04:30">
+              <button class="btn btn-sm" onclick="taOp('plan')">保存</button>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button class="btn btn-sm" onclick="taOp('relogin')">🔑 重新登录</button>
+              <button class="btn btn-sm btn-danger" onclick="taOp('logout')">清除登录凭据</button>
+            </div>
+            <pre id="ta-ops-out" style="display:none; margin-top:10px; max-height:180px; overflow:auto; font-size:11.5px; background:#0f172a; color:#e2e8f0; padding:8px 10px; border-radius:6px;"></pre>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(host.firstElementChild);
+  }
+
+  function openOps(id) {
+    ensureOpsModal();
+    opsAccId = id;
+    const a = accById(id);
+    const s = a.stats || {};
+    const lm = a.liveMetrics || {};
+    const d = (a.desktops || [])[0] || {};
+    const firstTask = (lm.officialTasks || [])[0] || {};
+    $('ta-ops-title').textContent = '实例操作 · ' + (a.name || a.user || id);
+    $('ta-ops-info').innerHTML = [
+      '实例：<b>' + (d.desktopName || '—') + '</b>（' + (d.useStatusText || '未知') + '）',
+      '规格：' + (d.flavorName || 'TeleAgent') + ' · ' + (d.cpu || '4核') + '/' + (d.memory || '8G'),
+      '保活：' + (s.keepAliveStatus === 'online' ? '🟢 在线' : '⚪ 离线') + ' · 间隔 ' + (a.keepaliveInterval || 300) + 's · 已换票 ' + (lm.cycles || 0) + ' 轮',
+      '积分：<b>' + (s.points != null ? s.points : '—') + '</b>' + (s.pointsPlan ? '（' + s.pointsPlan + '）' : '') + ' · 今日福利社：' + (firstTask.status === 2 ? '✅ 已领' : '⏳ 未领'),
+      '凭据有效期至：' + (s.jwtExpiresText || '—'),
+    ].join('<br>');
+    $('ta-ops-interval').value = String(a.keepaliveInterval || 300);
+    const plan = a.restartPlan || {};
+    $('ta-ops-plan-on').checked = !!plan.enabled;
+    $('ta-ops-plan-mode').value = plan.mode === 'weekly' ? 'weekly' : 'daily';
+    $('ta-ops-plan-weekday').value = String(plan.weekday || 0);
+    $('ta-ops-plan-time').value = plan.time || '04:30';
+    $('ta-ops-out').style.display = 'none';
+    openModal('ta-ops-modal');
+  }
+
+  function opsOut(text) {
+    const el = $('ta-ops-out');
+    el.style.display = 'block';
+    el.textContent = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
+  }
+
+  window.taOp = async function (act) {
+    const id = opsAccId;
+    if (!id) return;
+    const a = accById(id);
+    try {
+      if (act === 'open') {
+        showToast('正在获取官方临时票据…', 'info');
+        const r = await authFetch('/api/accounts/' + id + '/web-launch');
+        const d = await r.json();
+        if (d.directViewUrl) { window.open(d.directViewUrl, '_blank'); showToast('已在新标签打开云电脑', 'success'); }
+        else showToast('打开失败: ' + (d.error || '无票据'), 'error');
+        return;
+      }
+      if (act === 'kick') {
+        const r = await authFetch('/api/accounts/' + id + '/run/keepalive-now', { method: 'POST' });
+        return opsOut(await r.json());
+      }
+      if (act === 'toggle') {
+        const want = !(a.features && a.features.keepAlive !== false);
+        const r = await authFetch('/api/accounts/' + id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: { keepAlive: want } }),
+        });
+        const d = await r.json();
+        showToast(want ? '保活已恢复' : '保活已暂停', 'success');
+        if (typeof loadAccounts === 'function') loadAccounts(true);
+        return opsOut(d);
+      }
+      if (act === 'refresh') {
+        const r = await authFetch('/api/accounts/' + id + '/run/refresh', { method: 'POST' });
+        return opsOut(await r.json());
+      }
+      if (act === 'restart') {
+        if (!confirm('重启云电脑（instance/restart，约 1 分钟恢复，不影响数据）？')) return;
+        const r = await authFetch('/api/accounts/' + id + '/power/restart', { method: 'POST' });
+        return opsOut(await r.json());
+      }
+      if (act === 'rebuild') {
+        const v = prompt('重置云电脑服务会清除系统盘安装的软件与数据（历史任务/工作空间/个人设置保留），约 2 分钟。\n确认请输入 RESET：');
+        if (v !== 'RESET') return showToast('已取消', 'info');
+        const r = await authFetch('/api/accounts/' + id + '/power/rebuild', { method: 'POST' });
+        return opsOut(await r.json());
+      }
+      if (act === 'cancel') {
+        const r = await authFetch('/api/accounts/' + id + '/power/cancel', { method: 'POST' });
+        return opsOut(await r.json());
+      }
+      if (act === 'service') {
+        const r = await authFetch('/api/accounts/' + id + '/service-status');
+        return opsOut(await r.json());
+      }
+      if (act === 'interval') {
+        const iv = Number($('ta-ops-interval').value) || 300;
+        const r = await authFetch('/api/accounts/' + id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keepaliveInterval: iv }),
+        });
+        showToast('保活间隔已设为 ' + iv + 's', 'success');
+        return opsOut(await r.json());
+      }
+      if (act === 'plan') {
+        const plan = {
+          enabled: $('ta-ops-plan-on').checked,
+          mode: $('ta-ops-plan-mode').value,
+          weekday: Number($('ta-ops-plan-weekday').value) || 0,
+          time: $('ta-ops-plan-time').value || '04:30',
+        };
+        const r = await authFetch('/api/accounts/' + id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restartPlan: plan }),
+        });
+        showToast(plan.enabled ? '定时重启已保存' : '定时重启已关闭', 'success');
+        return opsOut(await r.json());
+      }
+      if (act === 'relogin') {
+        const r = await authFetch('/api/accounts/' + id + '/run/relogin', { method: 'POST' });
+        return opsOut(await r.json());
+      }
+      if (act === 'logout') {
+        if (!confirm('清除该账号的 JWT 与已保存密码？账号条目保留，之后需要重新输入密码。')) return;
+        const r = await authFetch('/api/accounts/' + id + '/logout', { method: 'POST' });
+        if (typeof loadAccounts === 'function') loadAccounts(true);
+        return opsOut(await r.json());
+      }
+    } catch (e) {
+      showToast('操作失败: ' + e.message, 'error');
+      opsOut('操作失败: ' + e.message);
+    }
+  };
+
+  function injectOpsButtons() {
+    document.querySelectorAll('[id^="acc-card-"]').forEach((card) => {
+      const tools = card.querySelector('.card-action-tools');
+      if (!tools || tools.querySelector('[data-ta-ops]')) return;
+      const id = card.id.replace('acc-card-', '');
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-tool';
+      btn.setAttribute('data-ta-ops', '1');
+      btn.title = '打开 / 立即保活 / 暂停恢复 / 重启 / 重置 / 取消排队 / 平台状态 / 定时重启 / 凭据';
+      btn.textContent = '🔧 实例操作';
+      btn.onclick = () => openOps(id);
+      tools.appendChild(btn);
+    });
+  }
+
+  // 隐藏后端没有对应能力的入口（渲染每 5 秒重绘，所以持续清扫）
   function sweepUnsupported() {
     document.querySelectorAll('.feature-row').forEach((row) => {
       const t = row.textContent || '';
@@ -103,6 +300,8 @@
   function boot() {
     applyTeleagentUi();
     sweepUnsupported();
+    ensureOpsModal();
+    injectOpsButtons();
   }
 
   document.addEventListener('DOMContentLoaded', boot);
