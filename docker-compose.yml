@@ -1,8 +1,8 @@
 services:
   teleagent-dashboard:
     build: .
-    image: teleagent-dashboard:latest
-    container_name: teleagent-dashboard
+    image: teleagent-multi:latest
+    container_name: teleagent-multi-dashboard
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
