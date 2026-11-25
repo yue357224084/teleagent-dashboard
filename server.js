@@ -252,8 +252,9 @@ const server = http.createServer(async (req, res) => {
       if (parts[3] === 'power' && req.method === 'POST') {
         const s = requireAuth(req, res, parsed); if (!s) return;
         const action = parts[4];
+        const desktopId = parsed.searchParams.get('desktopId') || parsed.searchParams.get('id') || null;
         try {
-          const r = await rt.power(action);
+          const r = await rt.power(action, desktopId);
           return json(res, { success: true, message: `[${acc.name}] ${action} 已下发`, data: r || null });
         } catch (e) {
           return json(res, { error: e.message }, 400);
@@ -263,11 +264,41 @@ const server = http.createServer(async (req, res) => {
       if (tail === 'web-launch' || tail === 'open') {
         const s = requireAuth(req, res, parsed); if (!s) return;
         try {
-          const url = await rt.openDesktop();
+          const desktopId = parsed.searchParams.get('desktopId') || parsed.searchParams.get('id') || null;
+          const url = await rt.openDesktop(desktopId);
           return json(res, { success: true, directViewUrl: url, connectURL: url, desktopName: acc.instanceName || 'TeleAgent 云电脑' });
         } catch (e) {
           return json(res, { error: `打开云电脑失败: ${e.message}` }, 400);
         }
+      }
+
+      if (tail === 'notifications') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        try {
+          const page = Number(parsed.searchParams.get('page')) || 1;
+          const size = Math.min(Number(parsed.searchParams.get('pageSize')) || 20, 50);
+          return json(res, { success: true, data: await rt.notifications(page, size) });
+        } catch (e) { return json(res, { success: false, error: e.message }, 400); }
+      }
+
+      if (parts[3] === 'notifications' && req.method === 'POST') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        const body = await readBody(req).catch(() => ({}));
+        try {
+          if (parts[4] === 'read-all') return json(res, { success: true, data: await rt.readAllNotifications() });
+          if (parts[4] === 'read') return json(res, { success: true, data: await rt.readNotification(body.id || parsed.searchParams.get('id')) });
+          return json(res, { error: '不支持的通知操作' }, 400);
+        } catch (e) { return json(res, { success: false, error: e.message }, 400); }
+      }
+
+      if (tail === 'instances' && req.method === 'POST') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        const body = await readBody(req).catch(() => ({}));
+        try {
+          const r = await rt.createInstance(body.payload || body);
+          logbus.push('KeepAlive', `[${acc.name}] instance/create 已提交`, 'warn', acc.name);
+          return json(res, { success: true, data: r });
+        } catch (e) { return json(res, { success: false, error: e.message }, 400); }
       }
 
       if (tail === 'activity') {

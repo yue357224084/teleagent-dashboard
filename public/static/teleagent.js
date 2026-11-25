@@ -181,6 +181,12 @@
           </div>
           <div class="modal-body">
             <div id="ta-ops-info" style="font-size: 12.5px; color: #334155; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; line-height: 1.7;"></div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+              <span style="font-size:12.5px;">实例</span>
+              <select class="form-control" id="ta-ops-inst" style="width:auto;padding:4px 8px;max-width:62%;"></select>
+              <button class="btn btn-sm" onclick="taOp('primary')" title="设为保活主实例">设为主实例</button>
+              <button class="btn btn-sm" onclick="taOp('create')" title="instance/create（参数与配额由平台校验）">➕ 创建实例</button>
+            </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
               <button class="btn btn-tool" onclick="taOp('open')">🚀 打开云电脑</button>
               <button class="btn btn-tool" onclick="taOp('kick')">🎫 立即保活</button>
@@ -243,6 +249,16 @@
       '积分：<b>' + (s.points != null ? s.points : '—') + '</b>' + (s.pointsPlan ? '（' + s.pointsPlan + '）' : '') + ' · 今日福利社：' + (firstTask.status === 2 ? '✅ 已领' : '⏳ 未领'),
       '凭据有效期至：' + (s.jwtExpiresText || '—'),
     ].join('<br>');
+    const instSel = $('ta-ops-inst');
+    if (instSel) {
+      const ds = a.desktops || [];
+      instSel.innerHTML = ds.length
+        ? ds.map((d) => `<option value="${d.desktopId}">${d.desktopName || d.desktopId}（${d.useStatusText || '未知'}）</option>`).join('')
+        : '<option value="">（无实例）</option>';
+      const primary = (a.stats && a.stats.instanceId) || (ds[0] && ds[0].desktopId) || '';
+      if (primary) instSel.value = primary;
+      if (!instSel.value && ds[0]) instSel.value = ds[0].desktopId;
+    }
     $('ta-ops-interval').value = String(a.keepaliveInterval || 300);
     const plan = a.restartPlan || {};
     $('ta-ops-plan-on').checked = !!plan.enabled;
@@ -263,10 +279,12 @@
     const id = opsAccId;
     if (!id) return;
     const a = accById(id);
+    const inst = ($('ta-ops-inst') || {}).value || '';
+    const instQ = inst ? '?desktopId=' + encodeURIComponent(inst) : '';
     try {
       if (act === 'open') {
         showToast('正在获取官方临时票据…', 'info');
-        const r = await authFetch('/api/accounts/' + id + '/web-launch');
+        const r = await authFetch('/api/accounts/' + id + '/web-launch' + instQ);
         const d = await r.json();
         if (d.directViewUrl) { window.open(d.directViewUrl, '_blank'); showToast('已在新标签打开云电脑', 'success'); }
         else showToast('打开失败: ' + (d.error || '无票据'), 'error');
@@ -293,17 +311,17 @@
       }
       if (act === 'restart') {
         if (!confirm('重启云电脑（instance/restart，约 1 分钟恢复，不影响数据）？')) return;
-        const r = await authFetch('/api/accounts/' + id + '/power/restart', { method: 'POST' });
+        const r = await authFetch('/api/accounts/' + id + '/power/restart' + instQ, { method: 'POST' });
         return opsOut(await r.json());
       }
       if (act === 'rebuild') {
         const v = prompt('重置云电脑服务会清除系统盘安装的软件与数据（历史任务/工作空间/个人设置保留），约 2 分钟。\n确认请输入 RESET：');
         if (v !== 'RESET') return showToast('已取消', 'info');
-        const r = await authFetch('/api/accounts/' + id + '/power/rebuild', { method: 'POST' });
+        const r = await authFetch('/api/accounts/' + id + '/power/rebuild' + instQ, { method: 'POST' });
         return opsOut(await r.json());
       }
       if (act === 'cancel') {
-        const r = await authFetch('/api/accounts/' + id + '/power/cancel', { method: 'POST' });
+        const r = await authFetch('/api/accounts/' + id + '/power/cancel' + instQ, { method: 'POST' });
         return opsOut(await r.json());
       }
       if (act === 'service') {
@@ -331,6 +349,22 @@
           body: JSON.stringify({ restartPlan: plan }),
         });
         showToast(plan.enabled ? '定时重启已保存' : '定时重启已关闭', 'success');
+        return opsOut(await r.json());
+      }
+      if (act === 'primary') {
+        if (!inst) return showToast('没有可选实例', 'error');
+        const r = await authFetch('/api/accounts/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: inst }) });
+        showToast('已设为保活主实例', 'success');
+        if (typeof loadAccounts === 'function') loadAccounts(true);
+        return opsOut(await r.json());
+      }
+      if (act === 'create') {
+        const raw = prompt('instance/create 参数（JSON，留空提交空对象）。注意：接口未实测，配额与参数由平台校验，可能产生资源占用。', '{}');
+        if (raw === null) return;
+        let payload = {};
+        try { payload = raw.trim() ? JSON.parse(raw) : {}; } catch (e) { return showToast('JSON 不合法: ' + e.message, 'error'); }
+        if (!confirm('确认调用 instance/create？')) return;
+        const r = await authFetch('/api/accounts/' + id + '/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload }) });
         return opsOut(await r.json());
       }
       if (act === 'relogin') {
@@ -561,6 +595,7 @@
     renderActivity(d.data);
     window.taActLoadPoints(1);
     window.taActLoadUsage();
+    window.taActLoadNotify();
   };
 
   function renderActivity(d) {
@@ -600,6 +635,10 @@
       ${camps}
       <h4 style="font-size:13px;margin:14px 0 6px;">🧾 积分明细</h4>
       <div id="ta-act-points" style="color:var(--text-muted);">加载中…</div>
+      <h4 style="font-size:13px;margin:14px 0 6px;">🔔 通知中心 <span id="ta-act-unread" style="color:#dc2626;font-size:11.5px;"></span>
+        <button class="btn btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11.5px;" onclick="taActNotifyAll()">全部已读</button>
+      </h4>
+      <div id="ta-act-notify" style="color:var(--text-muted);">加载中…</div>
       <h4 style="font-size:13px;margin:14px 0 6px;">📊 用量统计</h4>
       <div id="ta-act-usage" style="color:var(--text-muted);">加载中…</div>
       ${(d.errors || []).length ? `<div style="margin-top:10px;font-size:11.5px;color:#d97706;">部分接口异常：${d.errors.join('；')}</div>` : ''}
@@ -640,6 +679,37 @@
       <div style="margin-bottom:6px;">任务数 <b>${ov.taskCount ?? '—'}</b> · 调用次数 <b>${ov.callCount ?? '—'}</b> · 消耗积分 <b>${ov.pointsUsed ?? '—'}</b></div>
       ${list.length ? list.map((x) => `<div style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;gap:8px;"><span>${x.model || ''} <span style="color:var(--text-muted);font-size:11.5px;">${x.categoryName || ''}</span></span><span style="font-size:11.5px;">${x.totalUsage ?? ''} · ${x.statTime || ''}</span></div>`).join('') : '<div style="color:var(--text-muted);">暂无调用记录</div>'}
     `;
+  };
+
+  window.taActLoadNotify = async function () {
+    const el = $('ta-act-notify');
+    if (!el) return;
+    const r = await authFetch('/api/accounts/' + actAccId + '/notifications?page=1&pageSize=8');
+    const d = await r.json();
+    if (!d.success) { el.innerHTML = '<span style="color:#dc2626">通知加载失败</span>'; return; }
+    const un = d.data.unread || 0;
+    const badge = $('ta-act-unread');
+    if (badge) badge.textContent = un ? '(' + un + ' 未读)' : '';
+    const items = d.data.items || [];
+    el.innerHTML = items.length ? items.map((n) => `
+      <div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;${n.read ? 'opacity:.6;' : ''}">
+        <div style="display:flex;justify-content:space-between;gap:8px;">
+          <b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.title || '(无标题)'}</b>
+          <span style="font-size:11.5px;color:var(--text-muted);flex-shrink:0;">${(n.createdAt || '').slice(0, 16)}</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);max-height:44px;overflow:hidden;">${(n.content || '').slice(0, 120)}</div>
+        ${n.read ? '' : `<button class="btn btn-sm" style="margin-top:3px;padding:1px 8px;font-size:11px;" onclick="taActNotifyRead('${n.id}')">标记已读</button>`}
+      </div>`).join('') : '<div style="color:var(--text-muted);">没有通知</div>';
+  };
+
+  window.taActNotifyRead = async function (id) {
+    await authFetch('/api/accounts/' + actAccId + '/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    window.taActLoadNotify().catch(() => {});
+  };
+
+  window.taActNotifyAll = async function () {
+    await authFetch('/api/accounts/' + actAccId + '/notifications/read-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    window.taActLoadNotify().catch(() => {});
   };
 
   window.taActClaim = async function () {
