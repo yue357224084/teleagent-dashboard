@@ -34,6 +34,14 @@
     if (u) u.placeholder = '请输入 agent.teleai.com.cn 登录账号';
     const p = $('acc-password');
     if (p) p.placeholder = '请输入 TeleAgent 登录密码（服务端自动过滑块）';
+
+    // 保存按钮：原逻辑只在切到「密码登录」tab 时显示，我们把 tab 藏了，需手动切一次
+    forcePwdTab();
+    const title = $('modal-account-title');
+    if (title) {
+      const want = (($('acc-id') || {}).value || '') ? '编辑 TeleAgent 账号' : '添加 TeleAgent 账号';
+      if (title.textContent !== want) title.textContent = want;
+    }
   }
 
   // 覆盖原生保存：TeleAgent 不需要图形验证码
@@ -80,6 +88,38 @@
 
   window.refreshModalCaptcha = function () {};
   window.refreshYdpcModalCaptcha = function () {};
+
+  // 原逻辑：切到「扫码」tab 会隐藏保存按钮；我们把扫码 tab 藏了，这里强制走密码模式
+  function forcePwdTab() {
+    const btnSave = $('btn-save-account-pwd');
+    const panelQr = $('login-panel-qrcode');
+    const panelPwd = $('login-panel-pwd');
+    if (panelQr) panelQr.classList.add('hidden');
+    if (panelPwd) panelPwd.classList.remove('hidden');
+    if (btnSave) {
+      btnSave.style.display = 'inline-block';
+      if (btnSave.textContent !== '登录并添加') btnSave.textContent = '登录并添加';
+    }
+  }
+
+  const origSwitch = window.switchAccountLoginTab;
+  window.switchAccountLoginTab = function () {
+    if (typeof origSwitch === 'function') {
+      try { origSwitch('pwd'); } catch { /* 忽略原实现异常 */ }
+    }
+    forcePwdTab();
+  };
+
+  const origOpenAdd = window.openAddAccountModal;
+  window.openAddAccountModal = function () {
+    if (typeof origOpenAdd === 'function') {
+      try { origOpenAdd(); } catch { /* 忽略原实现异常 */ }
+    }
+    applyTeleagentUi();
+    forcePwdTab();
+    const title = $('modal-account-title');
+    if (title) title.textContent = '添加 TeleAgent 账号';
+  };
 
   // 「领取福利社积分」只跑 sign（AI 对话/挂机/兑换在本平台没有对应接口）
   window.syncAccountTasks = async function (accId) {
