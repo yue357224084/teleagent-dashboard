@@ -86,6 +86,25 @@
   window.refreshModalCaptcha = function () {};
   window.refreshYdpcModalCaptcha = function () {};
 
-  document.addEventListener('DOMContentLoaded', applyTeleagentUi);
-  setInterval(applyTeleagentUi, 2000);
+  // 隐藏后端没有对应能力的入口（渲染是每 5 秒重绘，所以持续清扫）
+  function sweepUnsupported() {
+    document.querySelectorAll('.feature-row').forEach((row) => {
+      const t = row.textContent || '';
+      if (/AI\s*智能对话|云电脑挂机|自动兑换|抽奖|自动开机守护/.test(t)) row.style.display = 'none';
+    });
+    document.querySelectorAll('button').forEach((b) => {
+      const t = (b.textContent || '').trim();
+      if (/积分商城|短信二次安全绑定|重新扫码授权|扫码重授权/.test(t)) b.style.display = 'none';
+      if (/^🛡️\s*守护|^守护:/.test(t)) b.style.display = 'none';
+      if (/^🔴\s*关机/.test(t)) b.style.display = 'none';
+    });
+  }
+
+  function boot() {
+    applyTeleagentUi();
+    sweepUnsupported();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+  setInterval(boot, 2000);
 })();
