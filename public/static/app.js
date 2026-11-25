@@ -1486,24 +1486,7 @@ function buildAccountCardElement(acc, slotIndex) {
             <span class="slider"></span>
           </label>
         </div>
-        <div class="feature-row">
-          <span>🤖 AI 智能对话任务 (每日100分)</span>
-          <label class="switch">
-            <input type="checkbox" ${f.aiChat !== false ? 'checked' : ''} onchange="toggleFeature('${acc.id}', 'aiChat', this.checked)">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="feature-row">
-          <span>⏱️ 云电脑挂机1小时 (每日100分)</span>
-          <label class="switch">
-            <input type="checkbox" ${f.cloudHang !== false ? 'checked' : ''} onchange="toggleFeature('${acc.id}', 'cloudHang', this.checked)">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="feature-row">
-          <span>🎁 自动兑换/抽奖 (${acc.redeemConfig?.enabled ? '<b style=\"color:#16a34a\">已开</b>' : '未开'})</span>
-          <button class="btn btn-sm btn-warning" onclick="openRedeemModal('${acc.id}')" style="flex-shrink:0;padding:3px 8px;font-size:11.5px;">⚙️ 奖品设置</button>
-        </div>
+        
       </div>
     </details>
 
@@ -1516,9 +1499,7 @@ function buildAccountCardElement(acc, slotIndex) {
         </button>
       ` : ''}
       <div class="card-action-tools">
-        <button class="btn btn-tool" onclick="syncAccountTasks('${acc.id}')" title="一键极速执行今日全部任务 (打卡/AI对话/挂机)">🔄 一键同步任务</button>
-        <button class="btn btn-tool" onclick="openPowerModal('${acc.id}')" title="云电脑电源管理 (开机/重启/关机)">⚡ 电源管理</button>
-        <button class="btn btn-tool" onclick="openManualRedeemModal('${acc.id}')" title="根据当前积分手动兑换商品或抽奖">🎁 积分商城</button>
+        <button class="btn btn-tool" onclick="syncAccountTasks('${acc.id}')" title="立即领取 TeleAgent 福利社每日积分">🎁 领取福利社积分</button>
       </div>
       ${!acc.bound ? `<button class="btn btn-sm btn-warning" style="width:100%;margin-top:2px;" onclick="openSmsModal('${acc.id}')">📲 短信二次安全绑定</button>` : ''}
     </div>

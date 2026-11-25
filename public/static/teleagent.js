@@ -81,6 +81,18 @@
   window.refreshModalCaptcha = function () {};
   window.refreshYdpcModalCaptcha = function () {};
 
+  // 「领取福利社积分」只跑 sign（AI 对话/挂机/兑换在本平台没有对应接口）
+  window.syncAccountTasks = async function (accId) {
+    try {
+      const r = await authFetch('/api/accounts/' + accId + '/run/sign', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      showToast(d.message || '福利社积分领取已触发', r.ok ? 'success' : 'error');
+      setTimeout(() => { if (typeof loadAccounts === 'function') loadAccounts(true); }, 1500);
+    } catch (e) {
+      showToast('请求异常: ' + e.message, 'error');
+    }
+  };
+
   // ---------- 实例操作面板 ----------
   let opsAccId = '';
 
