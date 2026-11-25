@@ -8,6 +8,11 @@ services:
       TZ: Asia/Shanghai
       PORT: "8580"
       CTYUN_DATA_DIR: /app/data
+      # 容器内 DNS 偶发 EAI_AGAIN：固定宿主 resolv 并优先 A 记录
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    dns:
+      - 223.5.5.5
+      - 119.29.29.29
     volumes:
       - ./data:/app/data
     ports:
