@@ -110,6 +110,29 @@
     forcePwdTab();
   };
 
+  // 原保存按钮的显示/隐藏由 app.js 多处控制，容易又被 setAttribute 掉；
+  // 这里额外注入一个自己的按钮，彻底不依赖原逻辑
+  function ensureSaveButton() {
+    const footer = document.querySelector('#account-modal .modal-footer');
+    if (!footer) return;
+    let btn = footer.querySelector('[data-ta-save]');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'btn btn-primary';
+      btn.setAttribute('data-ta-save', '1');
+      btn.textContent = '登录并添加';
+      btn.onclick = () => window.saveAccount();
+      footer.appendChild(btn);
+    }
+    const isEdit = !!((($('acc-id') || {}).value) || '').trim();
+    const want = isEdit ? '保存修改' : '登录并添加';
+    if (btn.textContent !== want) btn.textContent = want;
+    btn.style.display = 'inline-block';
+    // 原按钮隐藏掉，避免出现两个保存
+    const orig = $('btn-save-account-pwd');
+    if (orig) orig.style.display = 'none';
+  }
+
   const origOpenAdd = window.openAddAccountModal;
   window.openAddAccountModal = function () {
     if (typeof origOpenAdd === 'function') {
@@ -351,6 +374,7 @@
 
   function boot() {
     applyTeleagentUi();
+    ensureSaveButton();
     sweepUnsupported();
     ensureOpsModal();
     injectOpsButtons();
