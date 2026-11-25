@@ -268,6 +268,30 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      if (tail === 'activity') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        try { return json(res, { success: true, data: await rt.activityCenter() }); }
+        catch (e) { return json(res, { success: false, error: e.message }, 400); }
+      }
+
+      if (tail === 'points') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        try {
+          const page = Number(parsed.searchParams.get('page')) || 1;
+          const size = Math.min(Number(parsed.searchParams.get('pageSize')) || 20, 100);
+          return json(res, { success: true, data: await rt.pointsDetail(page, size) });
+        } catch (e) { return json(res, { success: false, error: e.message }, 400); }
+      }
+
+      if (tail === 'usage') {
+        const s = requireAuth(req, res, parsed); if (!s) return;
+        try {
+          const page = Number(parsed.searchParams.get('page')) || 1;
+          const size = Math.min(Number(parsed.searchParams.get('pageSize')) || 20, 100);
+          return json(res, { success: true, data: await rt.usageStats(page, size) });
+        } catch (e) { return json(res, { success: false, error: e.message }, 400); }
+      }
+
       if (tail === 'service-status') {
         const s = requireAuth(req, res, parsed); if (!s) return;
         try { return json(res, { success: true, data: await rt.serviceStatus() }); }

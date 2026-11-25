@@ -506,6 +506,162 @@
     document.body.appendChild(b);
   }
 
+
+  // ---------- 活动中心（活动 / 积分明细 / 用量 / 每日任务） ----------
+  let actAccId = '';
+
+  function ensureActModal() {
+    if ($('ta-act-modal')) return;
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <div class="modal-backdrop hidden" id="ta-act-modal">
+        <div class="modal" style="max-width: 760px; max-height: 88vh; overflow: auto;">
+          <div class="modal-header">
+            <h3>🎁 活动中心</h3>
+            <button class="modal-close" onclick="closeModal('ta-act-modal')">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+              <select class="form-control" id="ta-act-acc" style="width:auto;padding:4px 8px;" onchange="taActSwitch(this.value)"></select>
+              <button class="btn btn-sm" onclick="taActLoad()">刷新</button>
+              <button class="btn btn-sm btn-primary" onclick="taActClaim()">🎁 立即领取每日积分</button>
+            </div>
+            <div id="ta-act-body" style="font-size:12.5px;line-height:1.7;"></div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(host.firstElementChild);
+  }
+
+  function actAccounts() {
+    try { return (typeof accounts !== 'undefined' && Array.isArray(accounts)) ? accounts : []; } catch { return []; }
+  }
+
+  window.openActivity = async function () {
+    ensureActModal();
+    const sel = $('ta-act-acc');
+    const list = actAccounts();
+    sel.innerHTML = list.map((a) => `<option value="${a.id}">${a.name || a.user}</option>`).join('');
+    actAccId = actAccId && list.some((x) => x.id === actAccId) ? actAccId : (list[0] && list[0].id) || '';
+    if (actAccId) sel.value = actAccId;
+    openModal('ta-act-modal');
+    if (actAccId) await window.taActLoad();
+    else $('ta-act-body').innerHTML = '<div style="color:var(--text-muted)">还没有账号，先在面板里添加。</div>';
+  };
+
+  window.taActSwitch = function (id) { actAccId = id; window.taActLoad().catch(() => {}); };
+
+  window.taActLoad = async function () {
+    if (!actAccId) return;
+    const body = $('ta-act-body');
+    body.innerHTML = '<div style="color:var(--text-muted)">加载中…</div>';
+    const r = await authFetch('/api/accounts/' + actAccId + '/activity');
+    const d = await r.json();
+    if (!r.ok || !d.success) { body.innerHTML = '<div style="color:#dc2626">加载失败：' + (d.error || r.status) + '</div>'; return; }
+    renderActivity(d.data);
+    window.taActLoadPoints(1);
+    window.taActLoadUsage();
+  };
+
+  function renderActivity(d) {
+    const body = $('ta-act-body');
+    const exp = (d.expiring || []).map((a) => `<b>${a.name}</b> 剩 ${a.expireDays} 天（${a.balance} 分）`).join('；');
+    const acts = (d.activities || []).map((a) => `
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;${a.expiring ? 'border-color:#fca5a5;background:#fef2f2;' : ''}">
+        <div><b>${a.name}</b><br><span style="color:var(--text-muted);font-size:11.5px;">总额 ${a.total ?? '—'} · 剩余 ${a.remaining ?? '—'} · 已用 ${a.usagePercent || '—'}</span></div>
+        <div style="text-align:right;flex-shrink:0;"><b style="color:#2563eb;">${a.balance ?? '—'}</b><br><span style="font-size:11.5px;color:${a.expiring ? '#dc2626' : 'var(--text-muted)'};">${a.expireDays != null ? a.expireDays + ' 天后过期' : ''}</span></div>
+      </div>`).join('') || '<div style="color:var(--text-muted);">无活动数据</div>';
+
+    const camps = (d.campaigns || []).map((c) => `
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+        <div><b>${c.name || ('活动 ' + c.id)}</b><br><span style="color:var(--text-muted);font-size:11.5px;">${c.desc || ''}</span></div>
+        ${c.jumpUrl ? `<a class="btn btn-sm" href="${c.jumpUrl.startsWith('http') ? c.jumpUrl : 'https://agent.teleai.com.cn' + c.jumpUrl}" target="_blank" rel="noreferrer">去参与</a>` : ''}
+      </div>`).join('') || '<div style="color:var(--text-muted);">无活动页</div>';
+
+    const daily = d.daily || {};
+    const subs = (daily.sub || []).map((x) => `
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:6px;background:${x.status === 'completed' ? '#f0fdf4' : '#f8fafc'};margin-bottom:4px;">
+        <span>${x.name}</span><span style="color:${x.status === 'completed' ? '#16a34a' : '#d97706'};">${x.status === 'completed' ? '✅ 已完成' : '⏳ 待完成'}</span>
+      </div>`).join('');
+
+    body.innerHTML = `
+      ${exp ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 10px;margin-bottom:10px;color:#b91c1c;">⚠️ 积分即将过期：${exp}</div>` : ''}
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:12px;">
+        当前积分 <b style="font-size:16px;color:#2563eb;">${d.points ?? '—'}</b>
+        ${d.plan ? '（' + d.plan + '）' : ''} · 最大并发任务 ${d.maxConcurrent ?? '—'}
+        ${d.storeUrl ? ' · <a href="' + d.storeUrl + '" target="_blank" rel="noreferrer">积分商城</a>' : ''}
+        ${d.benefitUrl ? ' · <a href="' + d.benefitUrl + '" target="_blank" rel="noreferrer">权益中心</a>' : ''}
+      </div>
+      <h4 style="font-size:13px;margin:10px 0 6px;">📅 今日任务</h4>
+      ${subs || '<div style="color:var(--text-muted);">无每日任务</div>'}
+      <h4 style="font-size:13px;margin:14px 0 6px;">🔥 我的活动</h4>
+      ${acts}
+      <h4 style="font-size:13px;margin:14px 0 6px;">🎯 活动页</h4>
+      ${camps}
+      <h4 style="font-size:13px;margin:14px 0 6px;">🧾 积分明细</h4>
+      <div id="ta-act-points" style="color:var(--text-muted);">加载中…</div>
+      <h4 style="font-size:13px;margin:14px 0 6px;">📊 用量统计</h4>
+      <div id="ta-act-usage" style="color:var(--text-muted);">加载中…</div>
+      ${(d.errors || []).length ? `<div style="margin-top:10px;font-size:11.5px;color:#d97706;">部分接口异常：${d.errors.join('；')}</div>` : ''}
+    `;
+  }
+
+  window.taActLoadPoints = async function (page) {
+    const el = $('ta-act-points');
+    if (!el) return;
+    const r = await authFetch('/api/accounts/' + actAccId + '/points?page=' + (page || 1) + '&pageSize=10');
+    const d = await r.json();
+    if (!d.success) { el.innerHTML = '<span style="color:#dc2626">积分明细加载失败</span>'; return; }
+    const data = d.data || {};
+    const groups = data.groups || [];
+    if (!groups.length) { el.innerHTML = '<span style="color:var(--text-muted)">暂无记录</span>'; return; }
+    el.innerHTML = groups.map((g) => `
+      <div style="margin-bottom:8px;">
+        <div style="font-weight:700;margin-bottom:4px;">${g.type === 'campaign' ? '活动积分' : (g.type || '积分')}</div>
+        ${(g.active || []).map((a) => `
+          <div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;">
+            <div style="display:flex;justify-content:space-between;"><b>${a.name}</b><span>剩余 <b style="color:#2563eb;">${a.balance}</b> / ${a.totalQuota}</span></div>
+            <div style="font-size:11.5px;color:var(--text-muted);">${a.effectiveStart || ''} ~ ${a.effectiveEnd || ''}</div>
+            ${(a.subItems || []).map((s) => `<div style="font-size:11.5px;color:var(--text-muted);">· ${s.name || ''} ${s.totalQuota != null ? '总额 ' + s.totalQuota : ''} ${s.used != null ? '已用 ' + s.used : ''}</div>`).join('')}
+          </div>`).join('')}
+      </div>`).join('');
+  };
+
+  window.taActLoadUsage = async function () {
+    const el = $('ta-act-usage');
+    if (!el) return;
+    const r = await authFetch('/api/accounts/' + actAccId + '/usage?page=1&pageSize=8');
+    const d = await r.json();
+    if (!d.success) { el.innerHTML = '<span style="color:#dc2626">用量加载失败</span>'; return; }
+    const ov = (d.data && d.data.overview) || {};
+    const rec = (d.data && d.data.records) || {};
+    const list = rec.list || (rec.data && rec.data.list) || [];
+    el.innerHTML = `
+      <div style="margin-bottom:6px;">任务数 <b>${ov.taskCount ?? '—'}</b> · 调用次数 <b>${ov.callCount ?? '—'}</b> · 消耗积分 <b>${ov.pointsUsed ?? '—'}</b></div>
+      ${list.length ? list.map((x) => `<div style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;gap:8px;"><span>${x.model || ''} <span style="color:var(--text-muted);font-size:11.5px;">${x.categoryName || ''}</span></span><span style="font-size:11.5px;">${x.totalUsage ?? ''} · ${x.statTime || ''}</span></div>`).join('') : '<div style="color:var(--text-muted);">暂无调用记录</div>'}
+    `;
+  };
+
+  window.taActClaim = async function () {
+    if (!actAccId) return;
+    showToast('正在领取每日积分…', 'info');
+    const r = await authFetch('/api/accounts/' + actAccId + '/run/sign', { method: 'POST' });
+    const d = await r.json();
+    showToast(d.message || '已触发领取', r.ok ? 'success' : 'error');
+    setTimeout(() => { window.taActLoad().catch(() => {}); if (typeof loadAccounts === 'function') loadAccounts(true); }, 4000);
+  };
+
+  function injectActivityButton() {
+    if ($('ta-act-fab')) return;
+    const b = document.createElement('button');
+    b.id = 'ta-act-fab';
+    b.className = 'btn btn-sm';
+    b.style.cssText = 'position:fixed;right:16px;bottom:64px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15);';
+    b.textContent = '🎁 活动中心';
+    b.onclick = () => window.openActivity();
+    document.body.appendChild(b);
+  }
+
   function boot() {
     applyTeleagentUi();
     ensureSaveButton();
@@ -513,6 +669,8 @@
     ensureOpsModal();
     ensureGwModal();
     injectGatewayButton();
+    ensureActModal();
+    injectActivityButton();
   }
 
   document.addEventListener('DOMContentLoaded', boot);
