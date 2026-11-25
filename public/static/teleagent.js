@@ -160,7 +160,13 @@
   let opsAccId = '';
 
   function accById(id) {
-    try { return (window.accounts || []).find((a) => a.id === id) || {}; } catch { return {}; }
+    // app.js 里是 `let accounts`（顶层 let 不挂在 window 上），只能按标识符访问
+    try {
+      if (typeof accounts !== 'undefined' && Array.isArray(accounts)) {
+        return accounts.find((a) => a.id === id) || {};
+      }
+    } catch { /* 忽略 */ }
+    return {};
   }
 
   function ensureOpsModal() {
@@ -221,7 +227,7 @@
     document.body.appendChild(host.firstElementChild);
   }
 
-  function openOps(id) {
+  window.openOps = function openOps(id) {
     ensureOpsModal();
     opsAccId = id;
     const a = accById(id);
@@ -245,7 +251,7 @@
     $('ta-ops-plan-time').value = plan.time || '04:30';
     $('ta-ops-out').style.display = 'none';
     openModal('ta-ops-modal');
-  }
+  };
 
   function opsOut(text) {
     const el = $('ta-ops-out');
@@ -343,21 +349,6 @@
     }
   };
 
-  function injectOpsButtons() {
-    document.querySelectorAll('[id^="acc-card-"]').forEach((card) => {
-      const tools = card.querySelector('.card-action-tools');
-      if (!tools || tools.querySelector('[data-ta-ops]')) return;
-      const id = card.id.replace('acc-card-', '');
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-tool';
-      btn.setAttribute('data-ta-ops', '1');
-      btn.title = '打开 / 立即保活 / 暂停恢复 / 重启 / 重置 / 取消排队 / 平台状态 / 定时重启 / 凭据';
-      btn.textContent = '🔧 实例操作';
-      btn.onclick = () => openOps(id);
-      tools.appendChild(btn);
-    });
-  }
-
   // 隐藏后端没有对应能力的入口（渲染每 5 秒重绘，所以持续清扫）
   function sweepUnsupported() {
     document.querySelectorAll('.feature-row').forEach((row) => {
@@ -377,7 +368,6 @@
     ensureSaveButton();
     sweepUnsupported();
     ensureOpsModal();
-    injectOpsButtons();
   }
 
   document.addEventListener('DOMContentLoaded', boot);

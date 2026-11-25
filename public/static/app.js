@@ -1500,6 +1500,7 @@ function buildAccountCardElement(acc, slotIndex) {
       ` : ''}
       <div class="card-action-tools">
         <button class="btn btn-tool" onclick="syncAccountTasks('${acc.id}')" title="立即领取 TeleAgent 福利社每日积分">🎁 领取福利社积分</button>
+        <button class="btn btn-tool" onclick="openOps('${acc.id}')" title="打开 / 立即保活 / 暂停恢复 / 重启 / 重置 / 取消排队 / 平台状态 / 定时重启 / 凭据">🔧 实例操作</button>
       </div>
       ${!acc.bound ? `<button class="btn btn-sm btn-warning" style="width:100%;margin-top:2px;" onclick="openSmsModal('${acc.id}')">📲 短信二次安全绑定</button>` : ''}
     </div>
