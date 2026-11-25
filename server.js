@@ -13,6 +13,7 @@ const Notifier = require('./lib/notifier');
 const { DashboardAuth } = require('./lib/dashauth');
 const AccountManager = require('./lib/accounts');
 const { accountView, dashboardStatus } = require('./lib/views');
+const { Gateway } = require('./lib/gateway');
 const { todayCST } = require('./lib/runtime');
 
 const PORT = Number(process.env.PORT || 8580);
@@ -27,6 +28,7 @@ const notifier = new Notifier(store, logbus);
 const auth = new DashboardAuth(store, logbus);
 const manager = new AccountManager({ store, logbus, notifier });
 manager.start();
+const gateway = new Gateway({ dataDir: DATA_DIR, logbus });
 
 function json(res, data, code = 200) {
   const body = JSON.stringify(data);
@@ -94,6 +96,9 @@ const server = http.createServer(async (req, res) => {
   const p = parsed.pathname;
 
   try {
+    // ---------- OpenAI 兼容网关 ----------
+    if (p === '/v1/models' || p === '/v1/chat/completions') return gateway.handleV1(req, res, parsed);
+
     // ---------- 静态 ----------
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) return serveStatic(res, path.join(PUBLIC_DIR, 'index.html'));
     if (req.method === 'GET' && p.startsWith('/static/')) {
@@ -293,6 +298,40 @@ const server = http.createServer(async (req, res) => {
       return json(res, { message: '该操作在当前平台不支持', unsupported: true });
     }
 
+    // ---------- 模型网关管理 ----------
+    if (p === '/api/gateway/overview' && req.method === 'GET') {
+      const s = requireAuth(req, res, parsed); if (!s) return;
+      return json(res, gateway.overview());
+    }
+    if (p === '/api/gateway/nodes' && req.method === 'POST') {
+      const s = requireAuth(req, res, parsed); if (!s) return;
+      const body = await readBody(req);
+      const node = gateway.createNode(body.name);
+      return json(res, { id: node.id, name: node.name, token: node.token, wsPath: '/api/pool/agent' });
+    }
+    if (p.startsWith('/api/gateway/nodes/')) {
+      const s = requireAuth(req, res, parsed); if (!s) return;
+      const parts = p.split('/').filter(Boolean);
+      const id = parts[3];
+      if (req.method === 'DELETE') return json(res, { success: gateway.removeNode(id) });
+      if (req.method === 'POST' && parts[4] === 'rotate') {
+        const n = gateway.rotateNodeToken(id);
+        return n ? json(res, { id: n.id, token: n.token }) : json(res, { error: '节点不存在' }, 404);
+      }
+      return json(res, { error: '不支持的节点操作' }, 400);
+    }
+    if (p === '/api/gateway/keys' && req.method === 'POST') {
+      const s = requireAuth(req, res, parsed); if (!s) return;
+      const body = await readBody(req);
+      const k = gateway.createKey(body.name);
+      return json(res, { id: k.id, name: k.name, key: k.key });
+    }
+    if (p.startsWith('/api/gateway/keys/') && req.method === 'DELETE') {
+      const s = requireAuth(req, res, parsed); if (!s) return;
+      const id = p.split('/').filter(Boolean)[3];
+      return json(res, { success: gateway.removeKey(id) });
+    }
+
     // ---------- 日志 ----------
     if (p === '/api/logs' && req.method === 'GET') {
       const s = requireAuth(req, res, parsed); if (!s) return;
@@ -419,6 +458,8 @@ const server = http.createServer(async (req, res) => {
     json(res, { error: e.message }, 500);
   }
 });
+
+gateway.attach(server);
 
 server.listen(PORT, HOST, () => {
   console.log('===========================================================');

@@ -363,11 +363,156 @@
     });
   }
 
+
+  // ---------- 模型网关（云电脑节点 + OpenAI 兼容 /v1） ----------
+  let gwState = null;
+
+  function ensureGwModal() {
+    if ($('ta-gw-modal')) return;
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <div class="modal-backdrop hidden" id="ta-gw-modal">
+        <div class="modal" style="max-width: 720px; max-height: 86vh; overflow: auto;">
+          <div class="modal-header">
+            <h3>模型网关 · OpenAI 兼容 /v1</h3>
+            <button class="modal-close" onclick="closeModal('ta-gw-modal')">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div id="ta-gw-summary" style="font-size:12.5px;line-height:1.8;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+              <button class="btn btn-sm btn-primary" onclick="taGwCreateNode()">+ 添加云电脑节点</button>
+              <button class="btn btn-sm" onclick="taGwCreateKey()">+ 创建池 Key</button>
+              <button class="btn btn-sm" onclick="taGwRefresh()">刷新</button>
+            </div>
+            <div id="ta-gw-out" style="display:none;background:#0f172a;color:#e2e8f0;border-radius:6px;padding:8px 10px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;margin-bottom:10px;max-height:180px;overflow:auto;"></div>
+            <h4 style="font-size:13px;margin:6px 0;">节点</h4>
+            <div id="ta-gw-nodes" style="font-size:12.5px;"></div>
+            <h4 style="font-size:13px;margin:14px 0 6px;">池 Key</h4>
+            <div id="ta-gw-keys" style="font-size:12.5px;"></div>
+            <div style="margin-top:12px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+              客户端填：Base URL <code id="ta-gw-base"></code>，API Key = 池 Key，模型 = 节点上报的模型名。
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(host.firstElementChild);
+  }
+
+  function gwOut(text) {
+    const el = $('ta-gw-out');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
+  }
+
+  async function refreshGw() {
+    const r = await authFetch('/api/gateway/overview');
+    const d = await r.json();
+    gwState = d;
+    const summary = $('ta-gw-summary');
+    if (summary) {
+      summary.innerHTML = [
+        '在线节点：<b>' + d.onlineNodes + '/' + d.totalNodes + '</b>',
+        '模型：' + ((d.models || []).join(', ') || '（节点未上报）'),
+        '今日请求：<b>' + ((d.usageToday && d.usageToday.requests) || 0) + '</b>（成功 ' + ((d.usageToday && d.usageToday.ok) || 0) + ' / 失败 ' + ((d.usageToday && d.usageToday.err) || 0) + '）',
+        'WebSocket 路径：<code>' + d.wsPath + '</code>',
+      ].join('<br>');
+    }
+    const base = $('ta-gw-base');
+    if (base) base.textContent = location.origin + '/v1';
+    const nodesEl = $('ta-gw-nodes');
+    if (nodesEl) {
+      nodesEl.innerHTML = (d.nodes || []).length ? d.nodes.map((n) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+          <div style="min-width:0;">
+            <b>${n.online ? '🟢' : '⚪'} ${n.name}</b>
+            <span style="color:var(--text-muted);font-size:11.5px;"> ${n.hostname || ''} ${n.version ? 'v' + n.version : ''}</span><br>
+            <span style="font-size:11.5px;color:var(--text-muted);">${n.id} · 并发 ${n.inflight}/${n.maxInflight} · 模型 ${(n.models || []).join(',') || '—'}</span>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;">
+            <button class="btn btn-sm" onclick="taGwRotate('${n.id}')" title="换 Token（会断开当前连接）">🔄</button>
+            <button class="btn btn-sm btn-danger" onclick="taGwDelNode('${n.id}')" title="删除节点">🗑️</button>
+          </div>
+        </div>`).join('') : '<div style="color:var(--text-muted);">还没有节点。点「添加云电脑节点」，然后在云电脑里按提示运行节点程序。</div>';
+    }
+    const keysEl = $('ta-gw-keys');
+    if (keysEl) {
+      keysEl.innerHTML = (d.keys || []).length ? d.keys.map((k) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+          <div><b>${k.name}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${k.keyHint} · 创建于 ${new Date(k.createdAt).toLocaleString('sv-SE')}</span></div>
+          <button class="btn btn-sm btn-danger" onclick="taGwDelKey('${k.id}')">🗑️</button>
+        </div>`).join('') : '<div style="color:var(--text-muted);">还没有池 Key。点「创建池 Key」生成一个给客户端用。</div>';
+    }
+    return d;
+  }
+
+  window.taGwRefresh = () => refreshGw().catch((e) => gwOut('刷新失败: ' + e.message));
+
+  window.openGateway = async function () {
+    ensureGwModal();
+    openModal('ta-gw-modal');
+    try { await refreshGw(); } catch (e) { gwOut('加载失败: ' + e.message); }
+  };
+
+  window.taGwCreateNode = async function () {
+    const name = prompt('节点名称（例如：云电脑-7713）', '云电脑节点');
+    if (name === null) return;
+    const r = await authFetch('/api/gateway/nodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    const d = await r.json();
+    if (!r.ok) return gwOut(d);
+    gwOut(['节点已创建，Token 只显示这一次：', '', 'node-id : ' + d.id, 'token   : ' + d.token, '', '在云电脑里执行：',
+      'python pool_agent.py --server ws://' + location.host + d.wsPath + ' --node-id ' + d.id + ' --token ' + d.token].join('\n'));
+    refreshGw().catch(() => {});
+  };
+
+  window.taGwRotate = async function (id) {
+    if (!confirm('换 Token 会立即断开该节点的当前连接，需要在云电脑里用新 Token 重启节点。继续？')) return;
+    const r = await authFetch('/api/gateway/nodes/' + id + '/rotate', { method: 'POST' });
+    const d = await r.json();
+    if (d.token) gwOut('新 Token（只显示这一次）：\n' + d.token);
+    refreshGw().catch(() => {});
+  };
+
+  window.taGwDelNode = async function (id) {
+    if (!confirm('删除该节点？')) return;
+    await authFetch('/api/gateway/nodes/' + id, { method: 'DELETE' });
+    refreshGw().catch(() => {});
+  };
+
+  window.taGwCreateKey = async function () {
+    const name = prompt('池 Key 名称', '默认 Key');
+    if (name === null) return;
+    const r = await authFetch('/api/gateway/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    const d = await r.json();
+    if (!r.ok) return gwOut(d);
+    gwOut(['池 Key 已创建，只显示这一次：', '', d.key, '', '客户端填：', 'Base URL: ' + location.origin + '/v1', 'API Key : ' + d.key].join('\n'));
+    refreshGw().catch(() => {});
+  };
+
+  window.taGwDelKey = async function (id) {
+    if (!confirm('删除该池 Key？使用它的客户端会立即失效。')) return;
+    await authFetch('/api/gateway/keys/' + id, { method: 'DELETE' });
+    refreshGw().catch(() => {});
+  };
+
+  function injectGatewayButton() {
+    if ($('ta-gw-fab')) return;
+    const b = document.createElement('button');
+    b.id = 'ta-gw-fab';
+    b.className = 'btn btn-sm';
+    b.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15);';
+    b.textContent = '🔌 模型网关';
+    b.onclick = () => window.openGateway();
+    document.body.appendChild(b);
+  }
+
   function boot() {
     applyTeleagentUi();
     ensureSaveButton();
     sweepUnsupported();
     ensureOpsModal();
+    ensureGwModal();
+    injectGatewayButton();
   }
 
   document.addEventListener('DOMContentLoaded', boot);
