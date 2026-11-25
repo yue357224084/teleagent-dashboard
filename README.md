@@ -24,7 +24,6 @@
 | 日志 | 实时 SSE 日志流 + 按天落盘 jsonl + 一键清空 |
 | 设置 | 每日领取时间、保活间隔、webhook 通知、标题副标题 |
 | 活动中心 | 每日任务状态、活动列表（含剩余积分/到期天数）、活动页跳转、积分明细分组、平台用量看板、到期红色提醒 |
-| 模型网关 | 云电脑节点通过出站 WebSocket 接入，面板对外提供 OpenAI 兼容 `/v1/models`、`/v1/chat/completions`（流式），带池 Key、并发路由与用量统计 |
 
 ## 快速开始
 
@@ -71,19 +70,6 @@ PORT=8580 node server.js
 | `features.autoSign` | 是否每日自动领福利社积分 |
 | `features.aiChat/cloudHang/autoRedeem` | 平台无此能力，固定 false（卡片显示为关） |
 | `stats.keepAliveStatus` | 最近一轮换票是否成功 |
-
-## 模型网关（可选）
-
-面板右下角「🔌 模型网关」→ 建节点 + 建池 Key，然后在云电脑里按
-[docs/CLOUD-PC-NODE.md](docs/CLOUD-PC-NODE.md) 接入节点。
-
-对外接口：
-
-```bash
-curl http://<面板IP>:8580/v1/models -H "Authorization: Bearer sk-pool-..."
-```
-
-一台云电脑只能登录一个账号，所以一个节点 = 一个号；云电脑关机或重置后节点掉线，需要重新拉起客户端。
 
 ## 配置
 
