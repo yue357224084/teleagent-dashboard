@@ -221,10 +221,12 @@ const server = http.createServer(async (req, res) => {
         const s = requireAuth(req, res, parsed); if (!s) return;
         const task = parts[4];
         if (task === 'sign' || task === 'welfare') {
-          rt.claimDaily().then((r) => {
-            if (r.ok && !r.already) logbus.push('Welfare', `[${acc.name}] 福利社积分 +100（${r.message || 'ok'}）`, 'success', acc.name);
-          });
-          return json(res, { message: `[${acc.name}] 福利社积分领取已启动，结果以平台返回为准` });
+          const r = await rt.claimDaily();
+          const msg = r.ok
+            ? (r.already ? `[${acc.name}] 今日已领取` : `[${acc.name}] 领取成功${r.message ? '：' + r.message : ''}`)
+            : `[${acc.name}] 领取失败：${r.error || r.message || '未知错误'}`;
+          if (r.ok && !r.already) logbus.push('Welfare', `[${acc.name}] 福利社积分 +100（${r.message || 'ok'}）`, 'success', acc.name);
+          return json(res, { success: !!r.ok, already: !!r.already, message: msg }, r.ok ? 200 : 400);
         }
         if (task === 'keepalive') {
           rt.startKeepAlive();
