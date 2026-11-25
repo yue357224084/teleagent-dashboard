@@ -1,0 +1,19 @@
+services:
+  teleagent-dashboard:
+    build: .
+    image: teleagent-dashboard:latest
+    container_name: teleagent-dashboard
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      PORT: "8580"
+      CTYUN_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8580:8580"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

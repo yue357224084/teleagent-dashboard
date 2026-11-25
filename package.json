@@ -1,0 +1,16 @@
+{
+  "name": "teleagent-dashboard",
+  "version": "1.0.0",
+  "description": "TeleAgent 云电脑多账号保活控制台（ctyun-dashboard 前端 + teleagent 平台后端）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
